@@ -9,6 +9,7 @@ Solución backend para administrar clientes, cuentas bancarias, depósitos, reti
 - [Tecnologías utilizadas](#tecnologías-utilizadas)
 - [Modelo de datos](#modelo-de-datos)
 - [Reglas de negocio relevantes](#reglas-de-negocio-relevantes)
+- [Documentación Swagger](#documentación-swagger)
 - [API REST](#api-rest)
 - [Configuración](#configuración)
 - [Ejecución local](#ejecución-local)
@@ -143,9 +144,10 @@ La creación de cuentas conserva el identificador y el `id` retornado por Backof
 | Maven | 3.9.9 en Maven Wrapper; imagen de build 3.9 | Compilación, pruebas y empaquetado |
 | JUnit Jupiter | 5.10.2 en Core; gestionada por Spring Boot en las APIs | Pruebas automatizadas |
 | Mockito / MockMvc | Gestionadas por `spring-boot-starter-test` | Pruebas unitarias y de controllers |
+| Springdoc OpenAPI | 3.0.0 | Especificación OpenAPI y documentación interactiva Swagger UI |
 | Docker / Docker Compose | Compose `2.4` | Construcción y orquestación local |
 
-No se encontraron dependencias ni configuración de Kafka, Redis, Swagger/OpenAPI, Spring Boot Actuator, JWT, API Gateway, circuit breaker, Kubernetes o Testcontainers.
+No se encontraron dependencias ni configuración de Kafka, Redis, Spring Boot Actuator, JWT, API Gateway, circuit breaker, Kubernetes o Testcontainers.
 
 ## Modelo de datos
 
@@ -224,6 +226,17 @@ Los códigos se serializan como texto en JSON y se almacenan con `EnumType.STRIN
 - Un retiro que dejaría saldo negativo es rechazado con HTTP `400` y el mensaje `Saldo no disponible`.
 - El movimiento y el saldo disponible se guardan dentro de la misma transacción.
 - El reporte interpreta el rango de fechas como inclusivo; internamente consulta desde el inicio del primer día hasta el inicio del día posterior a la fecha final.
+
+## Documentación Swagger
+
+Cada microservicio publica automáticamente la especificación OpenAPI y una interfaz Swagger UI. Con PostgreSQL y las aplicaciones en ejecución, la documentación está disponible en:
+
+| Servicio | Swagger UI | OpenAPI JSON |
+|---|---|---|
+| Backoffice | [http://localhost:9098/swagger-ui.html](http://localhost:9098/swagger-ui.html) | [http://localhost:9098/v3/api-docs](http://localhost:9098/v3/api-docs) |
+| Operaciones | [http://localhost:9091/swagger-ui.html](http://localhost:9091/swagger-ui.html) | [http://localhost:9091/v3/api-docs](http://localhost:9091/v3/api-docs) |
+
+Swagger UI permite consultar los contratos y ejecutar solicitudes sobre los endpoints REST desde el navegador.
 
 ## API REST
 
