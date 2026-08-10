@@ -1,0 +1,414 @@
+{
+	"info": {
+		"_postman_id": "cc8b60a9-4194-4c9b-b259-01f502ca1e18",
+		"name": "tcs-banking-test",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "30474215"
+	},
+	"item": [
+		{
+			"name": "01.BackOffice-Registrar Cliente",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"tipoIdentificacion\": \"CED\",\n     \"identificacion\": \"0945678903\",\n     \"nombre\": \"PEDRO VELA\",\n    \"genero\": \"M\",\n    \"edad\": \"35\",\n    \"direccion\": \"AV. ORELLANA 1452 ENTRE CALLE ALCIBAR Y CALLEJON 15\",\n    \"telefono\": \"0954321789\"\n  }\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9098/api/v1/mantenimiento/clientes/crear",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9098",
+					"path": [
+						"api",
+						"v1",
+						"mantenimiento",
+						"clientes",
+						"crear"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "02.Backoffice-Listar Clientes",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9098/api/v1/mantenimiento/clientes/listar",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9098",
+					"path": [
+						"api",
+						"v1",
+						"mantenimiento",
+						"clientes",
+						"listar"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "03.BackOffice-Actualiza Cliente",
+			"request": {
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"tipoIdentificacion\": \"CED\",\n  \"nombre\": \"PEDRO VELA\",\n  \"genero\": \"M\",\n  \"edad\": \"35\",\n   \"direccion\": \"AV. ORELLANA 1452 ENTRE CALLE ALCIBAR Y CALLEJON 20\",\n  \"telefono\": \"0999999999\",\n  \"contrasena\": \"123456\"\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9098/api/v1/mantenimiento/clientes/actualizar/0945678903",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9098",
+					"path": [
+						"api",
+						"v1",
+						"mantenimiento",
+						"clientes",
+						"actualizar",
+						"0945678903"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "04.BackOffice-Elimina Cliente",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9098/api/v1/mantenimiento/clientes/eliminar/0945678903",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9098",
+					"path": [
+						"api",
+						"v1",
+						"mantenimiento",
+						"clientes",
+						"eliminar",
+						"0945678903"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "05.Operaciones-Crea Cuenta",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "",
+						"value": "",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": " \n  {\n    \"tipoCuenta\": \"CTE\",\n    \"saldoInicial\": 100.00,\n    \"identificacionCliente\": \"0945678903\"\n  }\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9091/api/v1/operaciones/cuentas/crear",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9091",
+					"path": [
+						"api",
+						"v1",
+						"operaciones",
+						"cuentas",
+						"crear"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "06.Operaciones-ListarCuenta",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9091/api/v1/operaciones/cuentas/listar",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9091",
+					"path": [
+						"api",
+						"v1",
+						"operaciones",
+						"cuentas",
+						"listar"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "07.Operaciones-ActualizarCuenta",
+			"request": {
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"tipoCuenta\": \"AHO\",\n  \"saldoInicial\": 200.00,\n  \"estado\": true,\n  \"identificacionCliente\": \"0945678903\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9091/api/v1/operaciones/cuentas/actualizar/7753196476",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9091",
+					"path": [
+						"api",
+						"v1",
+						"operaciones",
+						"cuentas",
+						"actualizar",
+						"7753196476"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "08.Operaciones-EliminarCuenta",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9091/api/v1/operaciones/cuentas/eliminar/5146405899",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9091",
+					"path": [
+						"api",
+						"v1",
+						"operaciones",
+						"cuentas",
+						"eliminar",
+						"5146405899"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "09.Operaciones-Movimiento-Deposito",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "\n{\n    \"tipoMovimiento\": \"DEP\",\n    \"valor\": 150.85,\n    \"numeroCuenta\": \"9310667904\"\n  }\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9091/api/v1/operaciones/movimientos/transaccion",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9091",
+					"path": [
+						"api",
+						"v1",
+						"operaciones",
+						"movimientos",
+						"transaccion"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "10.Operaciones-Listar Movimientos",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9091/api/v1/operaciones/movimientos/listar",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9091",
+					"path": [
+						"api",
+						"v1",
+						"operaciones",
+						"movimientos",
+						"listar"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "13.Reportes-Movimiento Reporte",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "\n{\n  \"identificacionCliente\": \"0945678903\",\n  \"fechaInicio\": \"01-08-2026\",\n  \"fechaFin\": \"30-08-2026\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9091/api/v1/operaciones/reportes/estado-cuenta",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9091",
+					"path": [
+						"api",
+						"v1",
+						"operaciones",
+						"reportes",
+						"estado-cuenta"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "12.Operaciones-EliminarMovimiento",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:9091/api/v1/operaciones/movimientos/eliminar/70",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "9091",
+					"path": [
+						"api",
+						"v1",
+						"operaciones",
+						"movimientos",
+						"eliminar",
+						"70"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
