@@ -11,6 +11,7 @@ Solución backend para administrar clientes, cuentas bancarias, depósitos, reti
 - [Reglas de negocio relevantes](#reglas-de-negocio-relevantes)
 - [Documentación Swagger](#documentación-swagger)
 - [API REST](#api-rest)
+- [Arquitectura objetivo y evolución productiva](#arquitectura-objetivo-y-evolución-productiva)
 - [Configuración](#configuración)
 - [Ejecución local](#ejecución-local)
 - [Ejecución con Docker Compose](#ejecución-con-docker-compose)
@@ -729,6 +730,153 @@ Los errores controlados de Operaciones utilizan este contrato:
   "fecha": "2026-08-09T23:18:00Z"
 }
 ```
+
+## Arquitectura objetivo y evolución productiva
+
+El alcance implementado prioriza las funcionalidades de la prueba técnica. Para una evolución hacia producción se contemplan los siguientes atributos de calidad y capacidades transversales. Esta sección describe el diseño objetivo; salvo las capacidades identificadas expresamente como actuales, estos componentes **no están implementados** en esta versión.
+
+| Capacidad | Estado actual | Evolución propuesta |
+|---|---|---|
+| Seguridad | APIs sin autenticación | OAuth 2.0/OIDC, JWT y autorización por roles |
+| Resiliencia | Excepciones controladas ante fallos de Backoffice | Timeouts, retry selectivo y circuit breaker |
+| CI/CD | Compilación y pruebas ejecutadas manualmente | Pipeline automatizado por Pull Request y por versión |
+| Contratos | Contratos visibles mediante OpenAPI/Swagger | Verificación automatizada productor-consumidor |
+| Mutación | Pruebas JUnit y Mockito | PIT para medir la capacidad real de detección de errores |
+| Observabilidad | Logs estructurados en consola | Actuator, Micrometer, métricas, trazas y alertas |
+| Escalabilidad | Servicios sin sesión y contenedores independientes | Varias réplicas detrás de un balanceador |
+
+### Seguridad y autenticación de endpoints
+
+La arquitectura objetivo utiliza un proveedor de identidad compatible con OAuth 2.0 y OpenID Connect, por ejemplo Keycloak, Auth0 o Microsoft Entra ID. Los microservicios actuarían como **Resource Server** de Spring Security y validarían localmente la firma, emisor, audiencia y expiración de cada JWT. Las contraseñas y la emisión de tokens no serían responsabilidad de Backoffice ni de Operaciones.
+
+```mermaid
+sequenceDiagram
+    actor Usuario
+    participant IdP as Proveedor de identidad
+    participant API as Backoffice / Operaciones
+    Usuario->>IdP: Autenticación
+    IdP-->>Usuario: Access token JWT
+    Usuario->>API: Authorization: Bearer JWT
+    API->>API: Validar firma, issuer, audience y expiración
+    API->>API: Verificar roles/scopes
+    API-->>Usuario: Respuesta o 401/403
+```
+
+Se propone aplicar mínimo privilegio mediante roles y scopes:
+
+- `banking.read`: consultas de clientes, cuentas, movimientos y reportes.
+- `banking.write`: creación y actualización de recursos.
+- `banking.admin`: eliminación y operaciones administrativas.
+- Respuesta `401 Unauthorized` cuando el token sea inexistente o inválido y `403 Forbidden` cuando no posea permisos.
+- Credenciales, claves y secretos administrados mediante variables protegidas o un gestor de secretos; nunca dentro del repositorio.
+- Swagger UI configurado con el esquema Bearer para permitir pruebas autorizadas mediante **Authorize**.
+
+En comunicaciones internas se validaría también la identidad del servicio mediante credenciales de cliente (`client credentials`) y, en ambientes de mayor criticidad, TLS mutuo. Como controles complementarios se contemplan CORS restrictivo, encabezados seguros, límites de tamaño, rate limiting, auditoría de accesos y protección de datos sensibles en logs y DTOs.
+
+### Resiliencia: timeout, retry y circuit breaker
+
+Operaciones depende actualmente de Backoffice mediante HTTP síncrono y transforma fallos de comunicación en una respuesta controlada `503 Service Unavailable`. Para producción se propone Resilience4j alrededor del cliente, con políticas distintas según el tipo de operación.
+
+```mermaid
+flowchart LR
+    OP[Operaciones] --> TO[Timeout]
+    TO --> RT[Retry selectivo]
+    RT --> CB[Circuit breaker]
+    CB --> BO[Backoffice]
+    CB -->|circuito abierto| F[Respuesta 503 controlada]
+```
+
+- **Timeout de conexión y lectura:** limita el tiempo durante el cual un hilo permanece bloqueado esperando Backoffice. Los valores se definirían con métricas reales y serían configurables por ambiente.
+- **Retry:** se aplicaría con espera exponencial y variación aleatoria únicamente ante fallos transitorios, como timeout o respuestas `502/503/504`. No se reintentarían errores funcionales `4xx`.
+- **Circuit breaker:** abriría el circuito cuando la tasa de fallos supere el umbral definido. Durante ese período se respondería inmediatamente sin sobrecargar Backoffice; después pasaría a estado semiabierto para comprobar su recuperación.
+- **Bulkhead:** limitaría llamadas concurrentes para impedir que la indisponibilidad de un servicio consuma todos los recursos de Operaciones.
+
+Las operaciones de escritura solo deben reintentarse cuando sean idempotentes. Para ello se contempla una clave de idempotencia que evite duplicar cuentas o movimientos. Cada transición del circuit breaker y cada reintento se expondría como métrica y evento observable.
+
+### Pipeline CI/CD
+
+Se contempla un pipeline en GitHub Actions, Jenkins o Azure DevOps con dos flujos diferenciados:
+
+```mermaid
+flowchart LR
+    PR[Pull Request] --> V[Validación]
+    V --> C[Compilar]
+    C --> UT[Pruebas unitarias]
+    UT --> IT[Pruebas de integración]
+    IT --> Q[Calidad y seguridad]
+    Q --> IMG[Construir imagen]
+    IMG --> REG[Registro de imágenes]
+    REG --> DEV[Despliegue DEV]
+    DEV --> SM[Smoke tests]
+    SM --> AP[Promoción aprobada]
+    AP --> PROD[Producción]
+```
+
+Para cada Pull Request se ejecutarían compilación Maven, pruebas unitarias, pruebas de integración con PostgreSQL efímero, validación OpenAPI, análisis estático, cobertura y escaneo de dependencias. Un fallo bloquearía el merge.
+
+Después de integrar en `main`, el pipeline construiría imágenes Docker inmutables, las etiquetaría con versión y SHA del commit, generaría un SBOM, ejecutaría un escaneo de vulnerabilidades y publicaría los artefactos en un registro. El despliegue utilizaría la misma imagen en todos los ambientes, configuración externa y aprobación manual antes de producción. Se contemplan estrategia rolling o blue/green, smoke tests posteriores y rollback automático ante fallos de salud.
+
+### Pruebas de contrato
+
+OpenAPI documenta actualmente la forma de las APIs, pero no detecta por sí solo una incompatibilidad entre productor y consumidor. Se propone incorporar pruebas de contrato para la integración donde Operaciones consume el endpoint de consulta de clientes de Backoffice.
+
+El contrato comprobaría como mínimo:
+
+- Ruta, método HTTP, parámetros y encabezados requeridos.
+- Códigos `200`, `404` y errores esperados.
+- Presencia, tipo y semántica de `id`, `identificacion`, `nombre` y `estado`.
+- Compatibilidad hacia atrás cuando Backoffice evolucione.
+
+Con Spring Cloud Contract, Backoffice sería el productor: sus contratos generarían pruebas que verifican la implementación y stubs versionados. Operaciones consumiría esos stubs en sus pruebas sin necesitar un Backoffice real. Alternativamente, OpenAPI Diff podría bloquear cambios incompatibles comparando la especificación publicada con la versión base. La regla de evolución sería permitir campos opcionales nuevos y rechazar eliminación, renombre o cambio de tipo de campos consumidos.
+
+### Pruebas de mutación
+
+La cobertura tradicional indica qué líneas fueron ejecutadas, pero no demuestra que las aserciones detecten defectos. Se contempla PIT (`pitest`) para introducir mutaciones controladas, por ejemplo cambiar una comparación, eliminar una llamada o invertir una condición, y comprobar que las pruebas fallen.
+
+Las áreas prioritarias serían:
+
+- Rechazo de retiros cuando el saldo es insuficiente.
+- Cálculo del nuevo saldo para depósitos y retiros.
+- Inclusión de los límites del rango de fechas del reporte.
+- Validación del estado del cliente antes de crear una cuenta.
+- Mapeo de excepciones a códigos HTTP.
+
+El pipeline publicaría el reporte de mutación y exigiría un umbral inicial que pueda incrementarse gradualmente. Se excluirían DTOs, configuración y código generado para concentrar la medición en reglas de negocio. Las mutaciones sobrevivientes se revisarían para mejorar aserciones o eliminar código sin comportamiento relevante.
+
+### Métricas, Actuator y observabilidad
+
+Se propone Spring Boot Actuator con Micrometer para exponer salud y métricas técnicas. Solo `health`, `info`, `metrics` y `prometheus` quedarían disponibles en una interfaz de administración protegida; los endpoints sensibles no serían públicos.
+
+La observabilidad se organizaría en tres pilares:
+
+- **Métricas:** latencia y tasa de errores HTTP, uso del pool JDBC, transacciones, movimientos aprobados/rechazados, llamadas a Backoffice y estados del circuit breaker. Prometheus recolectaría las series y Grafana presentaría tableros.
+- **Logs:** salida estructurada con timestamp, servicio, nivel, `traceId` y `spanId`, sin contraseñas, tokens ni información sensible. Los logs se centralizarían en Loki o Elastic.
+- **Trazas:** Micrometer Tracing y OpenTelemetry propagarían el contexto entre Operaciones y Backoffice para visualizar una solicitud completa en Tempo o Jaeger.
+
+Los health checks se separarían en **liveness** —el proceso puede continuar— y **readiness** —puede recibir tráfico porque sus dependencias esenciales están disponibles—. Las alertas se basarían en objetivos medibles, como tasa de errores, percentil 95 de latencia, conexiones disponibles y porcentaje de rechazos por dependencia caída.
+
+### Escalabilidad horizontal
+
+La implementación actual ya posee varias condiciones habilitantes: los servicios se empaquetan de forma independiente, se configuran mediante variables de entorno, no mantienen sesión de usuario en memoria y utilizan PostgreSQL externo. Esto permite ejecutar más de una instancia, aunque el `compose.yaml` actual levanta solamente una réplica de cada servicio y no incluye balanceador.
+
+La topología objetivo sería:
+
+```mermaid
+flowchart TB
+    U[Consumidores] --> LB[Balanceador / Ingress]
+    LB --> BO1[Backoffice 1]
+    LB --> BO2[Backoffice 2]
+    LB --> OP1[Operaciones 1]
+    LB --> OP2[Operaciones 2]
+    BO1 --> DB[(PostgreSQL)]
+    BO2 --> DB
+    OP1 --> DB
+    OP2 --> DB
+```
+
+En Kubernetes cada API se desplegaría mediante `Deployment` y `Service`, con varias réplicas, distribución entre nodos, requests/limits y escalado automático basado inicialmente en CPU y posteriormente en latencia o solicitudes por segundo. Readiness probes retirarían instancias no disponibles del balanceador y PodDisruptionBudgets conservarían capacidad durante mantenimientos.
+
+La consistencia del saldo se protege actualmente mediante transacciones y bloqueo pesimista en PostgreSQL, por lo que dos instancias de Operaciones no deberían actualizar simultáneamente la misma cuenta sin serialización. Antes de escalar se validarían índices, tamaño del pool de conexiones y capacidad máxima de PostgreSQL para evitar trasladar el cuello de botella a la base. La evidencia de escalabilidad se obtendría mediante una prueba de carga comparativa con una y varias réplicas, registrando throughput, percentiles de latencia, errores y consumo de recursos.
 
 ## Configuración
 
