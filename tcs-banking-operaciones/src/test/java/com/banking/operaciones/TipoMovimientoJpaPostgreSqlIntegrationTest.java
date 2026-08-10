@@ -19,7 +19,9 @@ import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(classes = OperacionesMain.class)
+@SpringBootTest(
+        classes = OperacionesMain.class,
+        properties = "spring.kafka.admin.auto-create=false")
 @Transactional
 class TipoMovimientoJpaPostgreSqlIntegrationTest {
 

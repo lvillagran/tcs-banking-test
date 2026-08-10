@@ -5,6 +5,8 @@ import com.banking.operaciones.dto.CuentaResponseDTO;
 import com.banking.operaciones.dto.CuentasResponseDTO;
 import com.banking.operaciones.dto.MensajeResponseDTO;
 import com.banking.operaciones.mapper.CuentaResponseMapper;
+import com.banking.operaciones.event.CuentaCreadaEvent;
+import com.banking.operaciones.messaging.CuentaEventPublisher;
 import com.banking.operaciones.model.BanCuenta;
 import com.banking.operaciones.serviceImpl.BanCuentaServiceImpl;
 import com.banking.core.infraestrutura.util.ServerIpAddressResolver;
@@ -15,15 +17,19 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/operaciones/cuentas")
 public class CuentaController {
 
     private final BanCuentaServiceImpl cuentaService;
+    private final CuentaEventPublisher cuentaEventPublisher;
 
-    public CuentaController(BanCuentaServiceImpl cuentaService) {
+    public CuentaController(BanCuentaServiceImpl cuentaService, CuentaEventPublisher cuentaEventPublisher) {
         this.cuentaService = cuentaService;
+        this.cuentaEventPublisher = cuentaEventPublisher;
     }
 
     /** Crear cuenta bancaria */
@@ -32,6 +38,19 @@ public class CuentaController {
         CuentaResponseDTO response = new CuentaResponseDTO();
 
             BanCuenta cuentaCreada = cuentaService.crearCuenta(request);
+
+            CuentaCreadaEvent event = new CuentaCreadaEvent(
+                    UUID.randomUUID(),
+                    1,
+                    Instant.now(),
+                    cuentaCreada.getId(),
+                    cuentaCreada.getClienteId(),
+                    cuentaCreada.getIdentificacionCliente(),
+                    cuentaCreada.getNumeroCuenta(),
+                    cuentaCreada.getTipoCuenta().name(),
+                    cuentaCreada.getSaldoInicial()
+            );
+            cuentaEventPublisher.publicarCuentaCreada(event);
 
             response.setCuenta(CuentaResponseMapper.toDetalle(cuentaCreada));
             response.setMensaje("Cuenta creada correctamente.");

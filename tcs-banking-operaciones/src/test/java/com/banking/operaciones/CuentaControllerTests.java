@@ -7,6 +7,7 @@ import com.banking.operaciones.dto.MensajeResponseDTO;
 import com.banking.operaciones.exception.SolicitudInvalidaException;
 import com.banking.operaciones.model.BanCuenta;
 import com.banking.operaciones.model.enums.TipoCuenta;
+import com.banking.operaciones.messaging.CuentaEventPublisher;
 import com.banking.operaciones.serviceImpl.BanCuentaServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +27,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,6 +37,9 @@ public class CuentaControllerTests {
 
     @Mock
     private BanCuentaServiceImpl cuentaService;
+
+    @Mock
+    private CuentaEventPublisher cuentaEventPublisher;
 
     @InjectMocks
     private CuentaController cuentaController;
@@ -73,6 +78,7 @@ public class CuentaControllerTests {
 
         assertEquals(HttpStatus.CREATED, response.getStatusCode());
         assertEquals("Cuenta creada correctamente.", response.getBody().getMensaje());
+        verify(cuentaEventPublisher).publicarCuentaCreada(any());
     }
 
 
@@ -89,6 +95,7 @@ public class CuentaControllerTests {
         org.junit.jupiter.api.Assertions.assertThrows(
                 SolicitudInvalidaException.class,
                 () -> cuentaController.crearCuenta(request));
+        verifyNoInteractions(cuentaEventPublisher);
     }
 
     @Test

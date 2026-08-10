@@ -4,6 +4,7 @@ import com.banking.operaciones.Controller.CuentaController;
 import com.banking.operaciones.exception.ApiExceptionHandler;
 import com.banking.operaciones.model.BanCuenta;
 import com.banking.operaciones.model.enums.TipoCuenta;
+import com.banking.operaciones.messaging.CuentaEventPublisher;
 import com.banking.operaciones.serviceImpl.BanCuentaServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,13 +27,16 @@ class TipoCuentaHttpTest {
     @Mock
     private BanCuentaServiceImpl cuentaService;
 
+    @Mock
+    private CuentaEventPublisher cuentaEventPublisher;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
-        mockMvc = MockMvcBuilders.standaloneSetup(new CuentaController(cuentaService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new CuentaController(cuentaService, cuentaEventPublisher))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .setValidator(validator)
                 .build();
