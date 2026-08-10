@@ -10,7 +10,8 @@ import com.banking.operaciones.model.BanMovimientos;
 import com.banking.operaciones.mapper.MovimientoMapper;
 import com.banking.operaciones.serviceImpl.BanMovimientoServiceImpl;
 import com.banking.operaciones.serviceImpl.MovimientoCreadoResultado;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.banking.operaciones.event.MovimientoRealizadoEvent;
+import com.banking.operaciones.messaging.MovimientoEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -19,13 +20,22 @@ import jakarta.validation.Valid;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/operaciones/movimientos")
 public class MovimientoController {
 
-    @Autowired
-    private BanMovimientoServiceImpl banMovimientoService;
+    private final BanMovimientoServiceImpl banMovimientoService;
+    private final MovimientoEventPublisher movimientoEventPublisher;
+
+    public MovimientoController(
+            BanMovimientoServiceImpl banMovimientoService,
+            MovimientoEventPublisher movimientoEventPublisher) {
+        this.banMovimientoService = banMovimientoService;
+        this.movimientoEventPublisher = movimientoEventPublisher;
+    }
 
     /** Crear movimiento */
     @PostMapping("/transaccion")
@@ -38,6 +48,13 @@ public class MovimientoController {
         }
 
         MovimientoCreadoResultado resultado = banMovimientoService.procesarMovimiento(request);
+        MovimientoRealizadoEvent event = new MovimientoRealizadoEvent(
+                UUID.randomUUID(), 1, Instant.now(),
+                resultado.movimiento().getId(), resultado.cuenta().getId(),
+                resultado.cuenta().getClienteId(), resultado.cuenta().getNumeroCuenta(),
+                resultado.movimiento().getTipoMovimiento().name(), resultado.movimiento().getValor(),
+                resultado.cuenta().getSaldoDisponible());
+        movimientoEventPublisher.publicarMovimientoRealizado(event);
         response.setMovimiento(MovimientoMapper.toDetalleResponse(
                 resultado.movimiento(),
                 resultado.cuenta(),

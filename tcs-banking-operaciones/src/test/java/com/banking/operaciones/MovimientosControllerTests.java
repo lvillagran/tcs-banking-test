@@ -14,6 +14,7 @@ import com.banking.operaciones.exception.ApiExceptionHandler;
 import com.banking.operaciones.exception.SaldoNoDisponibleException;
 import com.banking.operaciones.serviceImpl.BanMovimientoServiceImpl;
 import com.banking.operaciones.serviceImpl.MovimientoCreadoResultado;
+import com.banking.operaciones.messaging.MovimientoEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,9 @@ public class MovimientosControllerTests {
 
     @Mock
     private BanMovimientoServiceImpl banMovimientoService;
+
+    @Mock
+    private MovimientoEventPublisher movimientoEventPublisher;
 
     @InjectMocks
     private MovimientoController movimientoController;
@@ -91,6 +95,7 @@ public class MovimientosControllerTests {
                 .andExpect(jsonPath("$.movimiento.observacion").doesNotExist())
                 .andExpect(jsonPath("$.movimiento.fechaRegistro").doesNotExist())
                 .andExpect(jsonPath("$.movimientos").doesNotExist());
+        verify(movimientoEventPublisher).publicarMovimientoRealizado(any());
     }
 
     @Test
@@ -114,6 +119,7 @@ public class MovimientosControllerTests {
                 .andExpect(jsonPath("$.movimiento.tipoMovimiento").value("RET"))
                 .andExpect(jsonPath("$.movimiento.saldoAnterior").value(510.00))
                 .andExpect(jsonPath("$.movimiento.saldoDisponible").value(410.00));
+        verify(movimientoEventPublisher).publicarMovimientoRealizado(any());
     }
 
     @Test

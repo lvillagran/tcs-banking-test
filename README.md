@@ -1,10 +1,11 @@
 # TCS Banking — prueba técnica Backend Java
 
-Solución backend para administrar clientes, cuentas bancarias, depósitos, retiros y estados de cuenta. El repositorio está compuesto por una librería compartida y dos aplicaciones Spring Boot que se comunican de forma síncrona mediante HTTP y persisten en una instancia PostgreSQL organizada en dos esquemas.
+Solución backend para administrar clientes, cuentas bancarias, depósitos, retiros, estados de cuenta y notificaciones asíncronas. El repositorio está compuesto por una librería compartida y tres aplicaciones Spring Boot. Backoffice y Operaciones se comunican de forma síncrona mediante HTTP; Operaciones y Notificaciones se comunican de forma asíncrona mediante Kafka.
 
 ## Contenido
 
 - [Arquitectura de la solución](#arquitectura-de-la-solución)
+- [Comunicación asíncrona](#comunicación-asíncrona)
 - [Módulos](#módulos)
 - [Tecnologías utilizadas](#tecnologías-utilizadas)
 - [Modelo de datos](#modelo-de-datos)
@@ -18,6 +19,7 @@ Solución backend para administrar clientes, cuentas bancarias, depósitos, reti
 - [Pruebas automatizadas](#pruebas-automatizadas)
 - [Colección Postman](#colección-postman)
 - [Script de base de datos](#script-de-base-de-datos)
+- [Evidencias de ejecución](#evidencias-de-ejecución)
 
 ## Arquitectura de la solución
 
@@ -53,6 +55,14 @@ flowchart LR
 
     Core[tcs-banking-core<br/>auditoría e infraestructura]
 
+    subgraph EVT[Comunicación asíncrona]
+        Kafka[Apache Kafka 4.1.0<br/>KRaft · puerto 9092]
+        Notificaciones[tcs-banking-kafka-notificaciones<br/>Kafka Consumer]
+        KafkaUI[Kafka UI<br/>puerto 8085]
+        Kafka --> Notificaciones
+        KafkaUI -. inspecciona .-> Kafka
+    end
+
     subgraph DB[PostgreSQL 17 · tcs_bank]
         BackofficeSchema[(schema backoffice)]
         OperacionesSchema[(schema operaciones)]
@@ -63,9 +73,66 @@ flowchart LR
     RestClient -->|HTTP GET por identificación| BOController
     BORepository --> BackofficeSchema
     OPRepositories --> OperacionesSchema
+    OPControllers -->|CuentaCreadaEvent<br/>MovimientoRealizadoEvent| Kafka
     Core -. dependencia Maven .-> BO
     Core -. dependencia Maven .-> OP
 ```
+
+## Comunicación asíncrona
+
+Cuando Operaciones crea correctamente una cuenta, publica un `CuentaCreadaEvent`. Cuando completa un depósito (`DEP`) o retiro (`RET`), publica un `MovimientoRealizadoEvent`. Los eventos se serializan como JSON y utilizan el número de cuenta como key. Notificaciones consume ambos contratos y registra el mensaje correspondiente; el envío de correo se simula porque el modelo actual de Cliente no contiene email.
+
+- Topics: `banking.cuentas.creadas.v1` y `banking.movimientos.realizados.v1`
+- Consumer group: `tcs-banking-notificaciones`
+- Productor: `tcs-banking-operaciones`
+- Consumidor: `tcs-banking-notificaciones`
+- Interfaz web local: [http://localhost:8085](http://localhost:8085)
+
+```mermaid
+flowchart LR
+    OP["tcs-banking-operaciones<br/>Kafka Producer"]
+    CUENTA["banking.cuentas.creadas.v1"]
+    MOV["banking.movimientos.realizados.v1"]
+    NOTIF["tcs-banking-kafka-notificaciones<br/>Kafka Consumer"]
+    WELCOME["Log de bienvenida<br/>Bienvenido a TCS Bank"]
+    TX["Log de movimiento<br/>Depósito o retiro realizado"]
+
+    OP -->|"CuentaCreadaEvent"| CUENTA
+    OP -->|"MovimientoRealizadoEvent"| MOV
+    CUENTA -->|"@KafkaListener"| NOTIF
+    MOV -->|"@KafkaListener"| NOTIF
+    NOTIF --> WELCOME
+    NOTIF --> TX
+
+    classDef service fill:#1565c0,color:#fff,stroke:#0d47a1
+    classDef kafka fill:#ef6c00,color:#fff,stroke:#e65100
+    classDef notification fill:#2e7d32,color:#fff,stroke:#1b5e20
+
+    class OP service
+    class CUENTA,MOV kafka
+    class NOTIF,WELCOME,TX notification
+```
+
+Los dos contratos son records Java con propiedades simples; no transportan entidades JPA. Productor y consumidor conservan copias JSON compatibles y no existe una dependencia Maven desde Notificaciones hacia Operaciones.
+
+| Evento | Se publica cuando | Campos actuales |
+|---|---|---|
+| `CuentaCreadaEvent` | La creación de la cuenta terminó correctamente | `eventId`, `eventVersion`, `occurredAt`, `cuentaId`, `clienteId`, `identificacionCliente`, `numeroCuenta`, `tipoCuenta`, `saldoInicial` |
+| `MovimientoRealizadoEvent` | Un depósito o retiro terminó correctamente | `eventId`, `eventVersion`, `occurredAt`, `movimientoId`, `cuentaId`, `clienteId`, `numeroCuenta`, `tipoMovimiento`, `valor`, `saldoDisponible` |
+
+Cada evento usa `UUID.randomUUID()` como `eventId`, versión `1` e `Instant.now()` como fecha de ocurrencia. Los topics locales tienen una partición y una réplica. El consumidor usa `enable-auto-commit=false`, confirmación por registro (`ack-mode=record`) y `auto-offset-reset=earliest`.
+
+Esta primera iteración publica directamente con `KafkaTemplate`. Si Kafka no está disponible durante la publicación, el evento puede no entregarse. Para un entorno productivo se recomienda **Transactional Outbox**. Kafka también puede entregar un mensaje más de una vez, por lo que la idempotencia persistente del consumidor queda como mejora futura.
+
+### Inspección de eventos con Kafka UI
+
+Kafka UI se ejecuta como herramienta local de observabilidad y se conecta al broker mediante la red interna de Compose. Para iniciarlo junto con Kafka:
+
+```bash
+docker-compose up -d kafka kafka-ui
+```
+
+Después abre [http://localhost:8085](http://localhost:8085) y navega a `tcs-banking-local` → `Topics`. Allí estarán `banking.cuentas.creadas.v1` y `banking.movimientos.realizados.v1`; en `Messages` se pueden inspeccionar el JSON, la key `numeroCuenta`, la partición y el offset. Kafka UI no participa en la publicación ni en el consumo de eventos.
 
 ### Flujo de creación de una cuenta
 
@@ -75,6 +142,8 @@ sequenceDiagram
     participant Operaciones
     participant Backoffice
     participant PostgreSQL
+    participant Kafka
+    participant Notificaciones
 
     Consumer->>Operaciones: POST /api/v1/operaciones/cuentas/crear
     Operaciones->>Backoffice: GET /api/v1/mantenimiento/clientes/identificacion/{identificacion}
@@ -83,10 +152,32 @@ sequenceDiagram
     Backoffice-->>Operaciones: id, identificación, nombre y estado
     alt cliente existente y activo
         Operaciones->>PostgreSQL: Inserta operaciones.tab_cuenta
+        Operaciones->>Kafka: CuentaCreadaEvent (key = numeroCuenta)
         Operaciones-->>Consumer: 201 Created
+        Kafka-->>Notificaciones: banking.cuentas.creadas.v1
+        Notificaciones->>Notificaciones: Log "Bienvenido a TCS Bank"
     else cliente inexistente, inactivo o Backoffice no disponible
         Operaciones-->>Consumer: 404, 409 o 503
     end
+```
+
+### Flujo de depósito o retiro
+
+```mermaid
+sequenceDiagram
+    actor Consumer as Consumidor
+    participant Operaciones
+    participant PostgreSQL
+    participant Kafka
+    participant Notificaciones
+
+    Consumer->>Operaciones: POST /api/v1/operaciones/movimientos/transaccion
+    Operaciones->>PostgreSQL: Bloquea cuenta, guarda DEP/RET y actualiza saldo
+    PostgreSQL-->>Operaciones: Movimiento confirmado
+    Operaciones->>Kafka: MovimientoRealizadoEvent (key = numeroCuenta)
+    Operaciones-->>Consumer: 201 Created
+    Kafka-->>Notificaciones: banking.movimientos.realizados.v1
+    Notificaciones->>Notificaciones: Log de depósito o retiro realizado
 ```
 
 ## Módulos
@@ -128,14 +219,19 @@ Aplicación Spring Boot responsable de:
 
 La creación de cuentas conserva el identificador y el `id` retornado por Backoffice. Esta referencia entre servicios se almacena como datos (`cliente_id` e `identificacion_cliente`), sin una clave foránea entre los esquemas. La relación JPA/FK existente es `BanMovimientos` `ManyToOne` hacia `BanCuenta`.
 
+### `tcs-banking-kafka-notificaciones`
+
+Aplicación Spring Boot independiente, cuyo artefacto Maven es `tcs-banking-kafka-notificaciones`. Consume `CuentaCreadaEvent` y `MovimientoRealizadoEvent`, delega el procesamiento a `NotificacionService` y genera notificaciones simuladas mediante logs. No envía correo porque Cliente no tiene email, no depende de Operaciones, no accede a tablas bancarias y mantiene copias compatibles de los contratos JSON.
+
 ## Tecnologías utilizadas
 
 | Tecnología | Versión | Uso comprobado |
 |---|---|---|
-| Java | 21 | Lenguaje y runtime de los tres módulos |
-| Spring Boot | 4.1.0 | Framework base de Backoffice y Operaciones |
+| Java | 21 | Lenguaje y runtime de los cuatro módulos |
+| Spring Boot | 4.1.0 | Framework base de Backoffice, Operaciones y Notificaciones |
 | Spring Web | Gestionada por Spring Boot | Controllers REST y cliente HTTP `RestClient` |
 | Spring Data JPA | Gestionada por Spring Boot | Repositorios y acceso a datos |
+| Spring for Apache Kafka | Gestionada por Spring Boot | Publicación y consumo JSON de eventos de cuenta y movimiento |
 | Hibernate ORM | Gestionada por Spring Boot | Implementación JPA y mapeo objeto-relacional |
 | Jakarta Persistence API | 3.1.0 en Core | Anotaciones y contratos de persistencia compartidos |
 | Jakarta Validation | Gestionada por Spring Boot | Validación de requests con `@Valid`, `@NotNull` y `@NotBlank` |
@@ -146,9 +242,11 @@ La creación de cuentas conserva el identificador y el `id` retornado por Backof
 | JUnit Jupiter | 5.10.2 en Core; gestionada por Spring Boot en las APIs | Pruebas automatizadas |
 | Mockito / MockMvc | Gestionadas por `spring-boot-starter-test` | Pruebas unitarias y de controllers |
 | Springdoc OpenAPI | 3.0.0 | Especificación OpenAPI y documentación interactiva Swagger UI |
+| Apache Kafka | 4.1.0 (`apache/kafka:4.1.0`) | Transporte asíncrono de eventos en modo KRaft |
+| Kafka UI | 1.5.0 (`ghcr.io/kafbat/kafka-ui:v1.5.0`) | Inspección local del clúster, topics y mensajes |
 | Docker / Docker Compose | Compose `2.4` | Construcción y orquestación local |
 
-No se encontraron dependencias ni configuración de Kafka, Redis, Spring Boot Actuator, JWT, API Gateway, circuit breaker, Kubernetes o Testcontainers.
+No se encontraron dependencias ni configuración de Redis, Spring Boot Actuator, JWT, API Gateway, circuit breaker, Kubernetes o Testcontainers.
 
 ## Modelo de datos
 
@@ -888,6 +986,7 @@ La consistencia del saldo se protege actualmente mediante transacciones y bloque
 | `DB_USERNAME` | Ambas | `admin` | Usuario PostgreSQL |
 | `DB_PASSWORD` | Ambas | `123456789` | Contraseña PostgreSQL local |
 | `BACKOFFICE_BASE_URL` | Operaciones | `http://localhost:9098` | URL base del cliente HTTP |
+| `KAFKA_BOOTSTRAP_SERVERS` | Operaciones y Notificaciones | `localhost:9092` | Dirección del broker Kafka |
 
 ### Variables de Docker Compose
 
@@ -899,6 +998,8 @@ La consistencia del saldo se protege actualmente mediante transacciones y bloque
 | `POSTGRES_PORT` | `5432` |
 | `BACKOFFICE_PORT` | `9098` |
 | `OPERACIONES_PORT` | `9091` |
+| `KAFKA_PORT` | `9092` |
+| `KAFKA_UI_PORT` | `8085` |
 
 Copiar la plantilla antes de usar Compose y reemplazar la contraseña:
 
@@ -915,6 +1016,7 @@ cp .env.example .env
 - JDK 21.
 - Maven 3.9.x. Los módulos ejecutables incluyen Maven Wrapper 3.9.9.
 - PostgreSQL accesible mediante la configuración indicada anteriormente.
+- Apache Kafka accesible en `localhost:9092` para publicar y consumir eventos.
 - Esquemas `backoffice` y `operaciones` creados en `tcs_bank`.
 
 Desde la raíz, instalar primero la librería compartida:
@@ -935,17 +1037,26 @@ En otra terminal, iniciar Operaciones:
 mvn -f tcs-banking-operaciones/pom.xml spring-boot:run
 ```
 
+En una tercera terminal, iniciar el consumidor de notificaciones:
+
+```bash
+mvn -f tcs-banking-kafka-notificaciones/pom.xml spring-boot:run
+```
+
 La base puede prepararse restaurando [`database/BaseDatos.sql`](database/BaseDatos.sql) o creando los esquemas y permitiendo que Hibernate actualice las tablas. El script mínimo de esquemas está en [`docker/postgres/init/01-create-schemas.sql`](docker/postgres/init/01-create-schemas.sql).
 
 ## Ejecución con Docker Compose
 
-`compose.yaml` orquesta tres servicios sobre la red bridge `banking`:
+`compose.yaml` orquesta seis servicios sobre la red bridge `banking`:
 
 | Servicio | Imagen/build | Puerto publicado | Dependencias |
 |---|---|---:|---|
 | `postgres` | `postgres:17-alpine` | `5432` | Healthcheck con `pg_isready` |
+| `kafka` | `apache/kafka:4.1.0` | `9092` | Broker KRaft con volumen persistente y healthcheck |
+| `kafka-ui` | `ghcr.io/kafbat/kafka-ui:v1.5.0` | `8085` | Kafka saludable |
 | `backoffice` | Dockerfile multi-stage | `9098` | PostgreSQL saludable |
-| `operaciones` | Dockerfile multi-stage | `9091` | PostgreSQL saludable y Backoffice iniciado |
+| `operaciones` | Dockerfile multi-stage | `9091` | PostgreSQL, Backoffice y Kafka |
+| `notificaciones` | Dockerfile multi-stage | No publica puerto HTTP | Kafka saludable |
 
 Los Dockerfiles compilan con Maven 3.9 y Java 21, generan un JAR ejecutable y lo ejecutan sobre Eclipse Temurin 21 JRE con un usuario `banking` sin privilegios.
 
@@ -960,13 +1071,13 @@ Comprobar estado y logs:
 
 ```bash
 docker-compose ps
-docker-compose logs --tail=100 backoffice operaciones
-docker-compose logs -f backoffice operaciones
+docker-compose logs --tail=100 backoffice operaciones notificaciones kafka
+docker-compose logs -f operaciones notificaciones
 ```
 
-Dentro de la red Docker, las aplicaciones se conectan a `postgres:5432` y Operaciones consume Backoffice en `http://backoffice:9098`. Los puertos `localhost` se utilizan desde el host.
+Dentro de la red Docker, las aplicaciones se conectan a `postgres:5432`; Operaciones consume Backoffice en `http://backoffice:9098`; y Operaciones, Notificaciones y Kafka UI se conectan al broker en `kafka:29092`. Desde el host, Kafka está en `localhost:9092` y Kafka UI en [http://localhost:8085](http://localhost:8085).
 
-PostgreSQL persiste sus datos en el volumen nombrado `postgres_data`, montado en `/var/lib/postgresql/data`:
+PostgreSQL y Kafka persisten sus datos en los volúmenes `postgres_data` y `kafka_data`, respectivamente:
 
 ```bash
 docker-compose down
@@ -990,6 +1101,7 @@ Para ejecutar la secuencia completa, PostgreSQL debe estar disponible en la URL 
 mvn -B -ntp -f tcs-banking-core/pom.xml clean install
 mvn -B -ntp -f tcs-banking-backoffice/pom.xml test
 mvn -B -ntp -f tcs-banking-operaciones/pom.xml test
+mvn -B -ntp -f tcs-banking-kafka-notificaciones/pom.xml test
 ```
 
 Resultado verificado en Java 21:
@@ -998,7 +1110,8 @@ Resultado verificado en Java 21:
 |---|---|
 | Core | Compilación e instalación exitosas; no contiene tests en `src/test` |
 | Backoffice | 10 pruebas, 0 fallos, 0 errores |
-| Operaciones | 37 pruebas, 0 fallos, 0 errores |
+| Operaciones | Pruebas unitarias, MockMvc, Kafka publisher e integración JPA |
+| Kafka Notificaciones | Pruebas de delegación de ambos consumidores hacia `NotificacionService` |
 
 ## Colección Postman
 
@@ -1023,6 +1136,106 @@ psql -h localhost -p 5432 -U admin -d tcs_bank -f database/BaseDatos.sql
 
 El dump fue generado con opciones de limpieza e `IF EXISTS`, sin propietarios ni privilegios específicos, para reducir dependencias con el entorno de origen.
 
+## Evidencias de ejecución
+
+Las siguientes capturas pertenecen al estado actual del desarrollo y se presentan en el mismo orden numérico de los archivos almacenados en [`imagen/`](imagen/).
+
+### 01. Desarrollo
+
+Vista del repositorio en IntelliJ IDEA con los módulos Core, Backoffice, Operaciones y `tcs-banking-kafka-notificaciones`, junto con las aplicaciones Spring Boot utilizadas durante el desarrollo.
+
+![01. Desarrollo](imagen/01.Desarrollo.png)
+
+### 02. Docker levantado
+
+Construcción de las imágenes y arranque conjunto de PostgreSQL, Kafka, Kafka UI, Backoffice, Operaciones y Notificaciones mediante Docker Compose.
+
+![02. Docker levantado](imagen/02.DockerLevantado.png)
+
+### 03. Backoffice levantado
+
+Logs de inicio del contenedor `backoffice` y del broker Kafka en modo KRaft durante el arranque del ecosistema.
+
+![03. Backoffice levantado](imagen/03.BackOfficeLevantado.png)
+
+### 04. Operaciones levantado
+
+Inicio de `tcs-banking-operaciones` con Spring Boot 4.1.0 y conexión JDBC al PostgreSQL interno `postgres:5432/tcs_bank`.
+
+![04. Operaciones levantado](imagen/04.OperacionesLevantado.png)
+
+### 05. Apache Kafka levantado
+
+Ejecución de Kafka UI y del consumidor de Notificaciones; la consola muestra el servicio Kafka iniciado y actividad del clúster local.
+
+![05. Apache Kafka levantado](imagen/05.ApacheKafkaLevantado.png)
+
+### 06. Depósito
+
+Solicitud `POST /api/v1/operaciones/movimientos/transaccion` desde Postman con tipo `DEP`, seguida de una respuesta `201 Created` con el movimiento y los saldos resultantes.
+
+![06. Depósito](imagen/06.Deposito.png)
+
+### 07. Evento de depósito encolado en Kafka
+
+Trazabilidad en consola del flujo asíncrono: Operaciones publica el evento de depósito, Notificaciones lo recibe y genera el mensaje correspondiente.
+
+![07. Evento de depósito encolado en Kafka](imagen/07.EventoDepositoEncoladoEnKafka.png)
+
+### 08. Evento de retiro encolado en Kafka
+
+Trazabilidad del retiro: publicación de `MovimientoRealizadoEvent`, recepción por el consumidor y generación de la notificación simulada.
+
+![08. Evento de retiro encolado en Kafka](imagen/08.EventoRetiroEncoladoEnKafka.png)
+
+### 09. Retiro en Postman
+
+Solicitud de movimiento `RET` desde Postman y respuesta `201 Created`, incluyendo valor, saldo anterior y saldo disponible.
+
+![09. Retiro en Postman](imagen/09.RetiroPostman.png)
+
+### 10. Evento Kafka al crear una cuenta
+
+Logs de la validación síncrona del cliente en Backoffice, publicación de `CuentaCreadaEvent`, recepción en Notificaciones y generación del mensaje de bienvenida.
+
+![10. Evento Kafka al crear una cuenta](imagen/10.EventoEncoladoKafkaCreaCuenta.png)
+
+### 11. Creación de cuenta en Postman
+
+Creación de una cuenta `CTE` mediante `POST /api/v1/operaciones/cuentas/crear`, con respuesta `201 Created` y los datos persistidos de la cuenta.
+
+![11. Creación de cuenta en Postman](imagen/11.CreaCuentaPostman.png)
+
+### 12. Tabla Cliente
+
+Consulta directa de `backoffice.tab_cliente`, donde se observan registros persistidos y sus campos de auditoría.
+
+![12. Tabla Cliente](imagen/12.TablaCliente.png)
+
+### 13. Tabla Cuenta
+
+Consulta de `operaciones.tab_cuenta` con las referencias de cliente, números de cuenta, estado y saldos almacenados.
+
+![13. Tabla Cuenta](imagen/13.TablaCuenta.png)
+
+### 14. Tabla Movimientos
+
+Consulta de `operaciones.tab_movimientos` con movimientos `DEP` y `RET`, valores y saldos posteriores a cada transacción.
+
+![14. Tabla Movimientos](imagen/14.TablaMovimientos.png)
+
+### 15. Swagger Backoffice
+
+Swagger UI de Backoffice en el puerto `9098`, mostrando los endpoints disponibles en `cliente-controller`.
+
+![15. Swagger Backoffice](imagen/15.SwaggerBackOffice.png)
+
+### 16. Swagger Operaciones
+
+Swagger UI de Operaciones en el puerto `9091`, mostrando los endpoints REST de cuentas y los demás controladores del servicio.
+
+![16. Swagger Operaciones](imagen/16.SwaggerOperaciones.png)
+
 ## Estructura principal
 
 ```text
@@ -1032,11 +1245,15 @@ tcs-banking-test/
 │   └── BaseDatos.sql
 ├── docker/postgres/init/
 │   └── 01-create-schemas.sql
+├── imagen/
+│   └── 01.Desarrollo.png ... 16.SwaggerOperaciones.png
 ├── postman/
 │   └── tcs-banking-test.postman_collection.json
 ├── tcs-banking-core/
 ├── tcs-banking-backoffice/
 │   └── Dockerfile
-└── tcs-banking-operaciones/
+├── tcs-banking-operaciones/
+│   └── Dockerfile
+└── tcs-banking-kafka-notificaciones/
     └── Dockerfile
 ```
