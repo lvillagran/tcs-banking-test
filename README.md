@@ -130,8 +130,54 @@ mvn clean package
 Los controllers retornan DTOs de response y no serializan directamente las entidades JPA.
 Las contraseñas y los campos internos de auditoría no se exponen en los contratos REST.
 
+## Ejecución con Docker Compose
+
+La contenerización incluye PostgreSQL 17, Backoffice y Operaciones. Cada aplicación se
+compila en una imagen multi-stage con Java 21 y se ejecuta con un usuario sin privilegios.
+
+Preparar las variables locales:
+
+```bash
+cp .env.example .env
+```
+
+Antes de iniciar, reemplazar `POSTGRES_PASSWORD` en `.env`. El archivo `.env` está excluido
+de Git.
+
+Construir e iniciar:
+
+```bash
+docker-compose up --build -d
+```
+
+Consultar el estado y los logs:
+
+```bash
+docker-compose ps
+docker-compose logs -f backoffice operaciones
+```
+
+Servicios expuestos:
+
+```text
+Backoffice: http://localhost:9098
+Operaciones: http://localhost:9091
+PostgreSQL: localhost:5432
+```
+
+Detener los contenedores conservando la información de PostgreSQL:
+
+```bash
+docker-compose down
+```
+
+Para eliminar también el volumen de datos, utilizar explícitamente:
+
+```bash
+docker-compose down -v
+```
+
 ## Pendientes de entrega
 
 - Exportar la colección Postman al repositorio.
 - Incorporar `BaseDatos.sql`.
-- Agregar la contenerización en un commit independiente.

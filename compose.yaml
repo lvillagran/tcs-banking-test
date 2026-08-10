@@ -1,0 +1,66 @@
+version: "2.4"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tcs_bank}
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - banking
+
+  backoffice:
+    build:
+      context: .
+      dockerfile: tcs-banking-backoffice/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-tcs_bank}
+      DB_USERNAME: ${POSTGRES_USER:-admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    ports:
+      - "${BACKOFFICE_PORT:-9098}:9098"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - banking
+
+  operaciones:
+    build:
+      context: .
+      dockerfile: tcs-banking-operaciones/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-tcs_bank}
+      DB_USERNAME: ${POSTGRES_USER:-admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      BACKOFFICE_BASE_URL: http://backoffice:9098
+    ports:
+      - "${OPERACIONES_PORT:-9091}:9091"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backoffice:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - banking
+
+volumes:
+  postgres_data:
+
+networks:
+  banking:
+    driver: bridge
